@@ -1,0 +1,80 @@
+<html>
+<head>
+  <head>
+    <title>Notes: Demo app for solid-ui discovery</title>
+    <script src="https://timbl.com/timbl/Automation/Library/Mashup/mashlib.js">
+    </script>
+    <script>
+      document.addEventListener('DOMContentLoaded', event => {
+
+        // Render one note
+        function renderNote (note) {
+          const ele = dom.createElement('div') // @@ xml encode the text
+          const date = UI.widgets.shortDate(store.anyValue(note, ns.schema('dateCreated')))
+          ele.innerHTML = `<dl><dt style='color: 3888;'>${date}<//dt>
+          <dd>${store.anyValue(note, ns.schema('text'))}</dd></dl>`
+          return ele
+        }
+
+        /** Make the UI match the web data
+        */
+        async function refreshList () {
+          const notes = store.each(null, ns.rdf('type'), ns.schema('TextDigitalDocument'),  nodeListDocument)
+          var listToSort = notes.map(note => [ store.anyValue(note, ns.schema('dateCreated')), note ])
+          listToSort.sort()
+          const sortedNotes = listToSort.map(pair => pair[1])
+          UI.utils.syncTableToArray(container, sortedNotes, renderNote)
+        }
+
+        async function loggedInStatusHandler(webIdUri) {
+          if (!webIdUri) {
+            console.log('User logged out')
+            return
+          }
+          var me = $rdf.sym(webIdUri)
+          var context = {dom, statusArea, me}
+          const klass = UI.ns.schema('TextDigitalDocument')
+          const isPublic = true
+          await UI.authn.findAppInstances(context, klass, isPublic)
+          console.log('context', context)
+          if (context.instances.length === 0) {
+            console.log('No note list -- need to create one')
+          } else if (context.instances.length > 1) {
+            alert('Configuration error: More than on note list.')
+          } else {
+            nodeListDocument = context.instances[0]
+            console.log('nodeListDocument', nodeListDocument)
+            await store.fetcher.load(nodeListDocument)
+            await refreshList()
+          }
+        }
+        const UI = panes.UI
+        const ns = UI.ns
+        const $rdf = UI.rdf
+        const dom = document
+        const store = UI.store
+        var nodeListDocument
+
+        localStorage.clear() // @@ Prevemt issues with authn in its current state
+
+        const statusArea = dom.getElementById('statusArea')
+        const container = dom.getElementById('noteSpace')
+        dom.getElementById('logInBox').appendChild(
+            UI.authn.loginStatusBox(dom, loggedInStatusHandler))
+
+        container.refresh = refreshList // Live update convention
+      } ) // on load
+    </script>
+  </head>
+  <body>
+  <div>
+    <header id='logInBox'>
+      </header>
+    <h2>Your notes</h2>
+    <main id='noteSpace'>
+    </main>
+    <div id='statusArea'>
+    </div>
+    </div>
+  </body>
+</html>
