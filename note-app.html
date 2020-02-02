@@ -10,20 +10,23 @@
         // Render one note
         function renderNote (note) {
           const ele = dom.createElement('div') // @@ xml encode the text
-          const date = UI.widgets.shortDate(store.anyValue(note, ns.schema('dateCreated')))
-          ele.innerHTML = `<dl><dt style='color: 3888;'>${date}<//dt>
-          <dd>${store.anyValue(note, ns.schema('text'))}</dd></dl>`
+          const date = UI.widgets.shortDate(store.anyValue(note, ns.schema('dateCreated'))) // hmm textInputStyle or messageBodyStyle
+          ele.innerHTML = `<dl>
+            <dt style='color: 3888;'>${date}<//dt>
+            <dd style='${UI.style.textInputStyle}'>${store.anyValue(note, ns.schema('text'))}</dd>
+          </dl>`
           return ele
         }
 
-        /** Make the UI match the web data
+        /** Sync the UI to match the web data
         */
         async function refreshList () {
           const notes = store.each(null, ns.rdf('type'), ns.schema('TextDigitalDocument'),  nodeListDocument)
           var listToSort = notes.map(note => [ store.anyValue(note, ns.schema('dateCreated')), note ])
           listToSort.sort()
+          // listToSort.reverse()
           const sortedNotes = listToSort.map(pair => pair[1])
-          UI.utils.syncTableToArray(container, sortedNotes, renderNote)
+          UI.utils.syncTableToArrayReOrdered(container, sortedNotes, renderNote)
         }
 
         async function loggedInStatusHandler(webIdUri) {
@@ -31,12 +34,10 @@
             console.log('User logged out')
             return
           }
-          var me = $rdf.sym(webIdUri)
-          var context = {dom, statusArea, me}
+          context.me = $rdf.sym(webIdUri)
           const klass = UI.ns.schema('TextDigitalDocument')
           const isPublic = true
           await UI.authn.findAppInstances(context, klass, isPublic)
-          console.log('context', context)
           if (context.instances.length === 0) {
             console.log('No note list -- need to create one')
           } else if (context.instances.length > 1) {
@@ -44,23 +45,61 @@
           } else {
             nodeListDocument = context.instances[0]
             console.log('nodeListDocument', nodeListDocument)
-            await store.fetcher.load(nodeListDocument)
+            try {
+              await store.fetcher.load(nodeListDocument)
+            } catch (err) {
+              UI.widgets.complain(context, err)
+              return
+            }
             await refreshList()
           }
+        }
+
+        /** Create a new note on the web
+        *
+        * Like   <#n123> a :TextDigitalDocument; :text "..."; :dateCreated "..." .
+        */
+        async function createNewNote (text) {
+          const note = UI.widgets.newThing(nodeListDocument)
+          const newStatements = [
+          $rdf.st(note, ns.rdf('type'),  ns.schema('TextDigitalDocument'), nodeListDocument),
+          $rdf.st(note, ns.schema('text'), text, nodeListDocument),
+          $rdf.st(note, ns.schema('dateCreated'), new Date(), nodeListDocument)
+          ]
+          try {
+            await store.updater.update([], newStatements)
+          } catch (err) {
+            UI.widgets.complain(context, err)
+            return
+          }
+          refreshList() // Update the UI to reflect the web
         }
         const UI = panes.UI
         const ns = UI.ns
         const $rdf = UI.rdf
         const dom = document
         const store = UI.store
+        const statusArea = dom.getElementById('statusArea')
+        var context = {dom, statusArea}
         var nodeListDocument
 
         localStorage.clear() // @@ Prevemt issues with authn in its current state
 
-        const statusArea = dom.getElementById('statusArea')
         const container = dom.getElementById('noteSpace')
         dom.getElementById('logInBox').appendChild(
             UI.authn.loginStatusBox(dom, loggedInStatusHandler))
+
+        const inputField = dom.getElementById('input')
+        inputField.style = UI.style.textInputStyle
+        inputField.addEventListener('keyup',
+          async function (e) {
+            if (e.keyCode === 13) {
+              await createNewNote(inputField.value)
+              inputField.value = ''
+            }
+          },
+          false
+        )
 
         container.refresh = refreshList // Live update convention
       } ) // on load
@@ -70,9 +109,15 @@
   <div>
     <header id='logInBox'>
       </header>
-    <h2>Your notes</h2>
+    <h2>Your public notes</h2>
     <main id='noteSpace'>
     </main>
+    <div>
+      <dl><dt>New Note</dt><dd id='inputContainer'>
+            <input id='input' type='text' style='width: 40em; backgroundColor: #eef; font-size: 100%;'></input>
+          </dd></dl>
+
+      </div>
     <div id='statusArea'>
     </div>
     </div>
